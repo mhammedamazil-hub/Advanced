@@ -8,23 +8,25 @@ mkdir -p "$DIR"
 
 BASE="https://storage.googleapis.com/mediapipe-models/object_detector"
 
+# download <output-name> <model-dir> — tries float16, then float32, then int8
 download() {
-  local name="$1" url="$2"
+  local name="$1" model="$2"
   if [ -s "$DIR/$name" ]; then
     echo "OK (cached): $name"
     return
   fi
-  echo "Downloading $name ..."
-  curl -fSL --retry 3 -o "$DIR/$name" "$url"
-  echo "OK: $name ($(du -h "$DIR/$name" | cut -f1))"
+  for fmt in float16 float32 int8; do
+    echo "Trying $model ($fmt) ..."
+    if curl -fSL --retry 3 -o "$DIR/$name" "$BASE/$model/$fmt/1/$name"; then
+      echo "OK: $name [$fmt] ($(du -h "$DIR/$name" | cut -f1))"
+      return
+    fi
+  done
+  echo "ERROR: could not download $name" >&2
+  exit 1
 }
 
-# Fast model (float16 for GPU delegate)
-download efficientdet_lite0.tflite \
-  "$BASE/efficientdet_lite0/float16/1/efficientdet_lite0.tflite"
-
-# Accurate model
-download efficientdet_lite2.tflite \
-  "$BASE/efficientdet_lite2/float16/1/efficientdet_lite2.tflite"
+download efficientdet_lite0.tflite efficientdet_lite0   # fast model
+download efficientdet_lite2.tflite efficientdet_lite2   # accurate model
 
 echo "All models ready in $DIR"
