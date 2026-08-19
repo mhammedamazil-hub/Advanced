@@ -1,0 +1,13 @@
+*.iml
+.gradle/
+.kotlin/
+build/
+local.properties
+.idea/
+captures/
+.externalNativeBuild/
+.cxx/
+*.apk
+*.aab
+# Detection models are downloaded at build time (scripts/download_models.sh)
+app/src/main/assets/models/*.tflite
