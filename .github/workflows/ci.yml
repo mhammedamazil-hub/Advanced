@@ -1,0 +1,22 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install dependencies
+        run: pip install -r requirements.txt pytest
+      - name: Run test suite (all cognitive subsystems)
+        run: python -m pytest tests/ -q
+      - name: Architecture smoke — lifecycle quick run
+        run: python -m minicoder.cli --data /tmp/ci-brain demo --fast
+        timeout-minutes: 12

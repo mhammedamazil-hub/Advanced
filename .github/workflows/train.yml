@@ -1,0 +1,74 @@
+name: Train Compact Model (manual, gated)
+
+# Manual dispatch: trains the compact coding model and a LoRA adapter, runs
+# Mini-Bench before/after, and uploads checkpoints.  Nothing is merged to the
+# repo automatically — level-5-style gating stays a human decision.
+
+on:
+  workflow_dispatch:
+    inputs:
+      base_steps:
+        description: "base-model training steps"
+        required: false
+        default: "400"
+      lora_steps:
+        description: "adapter training steps"
+        required: false
+        default: "80"
+
+jobs:
+  train:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install
+        run: pip install -r requirements.txt
+      - name: Train + evaluate + adapter gate
+        run: |
+          python - <<'EOF'
+          import json, os, time
+          from minicoder.brain import Brain
+          from minicoder.config import BrainConfig
+          from minicoder.evals.benchmarks import evaluate_solver, MINI_BENCH
+          from minicoder.demo import _pure_model_solver, _adapter_solver
+          from minicoder.learning.continual import ContinualLearner
+
+          os.makedirs("reports", exist_ok=True)
+          brain = Brain(BrainConfig(base_dir="data"))
+          brain.ensure_model()
+          t0 = time.time()
+          train = brain.train_base(steps=int(os.environ["BASE_STEPS"]))
+          held = evaluate_solver(_pure_model_solver(brain), brain.sandbox,
+                                 MINI_BENCH)
+          cl = ContinualLearner(brain.config, brain.memory, brain.sandbox,
+                                brain.checkpoints)
+          brain.config.lora.train_steps = int(os.environ["LORA_STEPS"])
+          def bench(adapter=None):
+              solver = _pure_model_solver(brain) if adapter is None \
+                  else _adapter_solver(brain, adapter)
+              return evaluate_solver(solver, brain.sandbox, MINI_BENCH[:8])["score"]
+          lora = cl.level4_train_adapter(brain.model, brain.tokenizer, bench,
+                                         name="ci-adapter")
+          out = {"train": train, "held_out": held["score"], "lora": lora,
+                 "duration_s": round(time.time() - t0, 1)}
+          with open(f"reports/train-{int(time.time())}.json", "w") as fh:
+              json.dump(out, fh, indent=2, default=str)
+          print(json.dumps(out, indent=2, default=str))
+          brain.close()
+          EOF
+        env:
+          BASE_STEPS: ${{ github.event.inputs.base_steps }}
+          LORA_STEPS: ${{ github.event.inputs.lora_steps }}
+        timeout-minutes: 40
+      - uses: actions/upload-artifact@v4
+        with:
+          name: trained-model
+          path: |
+            reports/
+            data/memory/checkpoints/
+            data/memory/tokenizer.json
+          retention-days: 60
