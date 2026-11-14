@@ -1,6 +1,8 @@
 # Runtime brain state / learned artifacts (regenerated, not source)
 data/
-memory/
+# NOTE: only the ROOT memory dir (runtime mirror exports); never ignore
+# minicoder/memory/ — that is source code of the brain.
+/memory/
 *.db
 *.db.bak.*
 
