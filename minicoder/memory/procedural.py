@@ -34,6 +34,7 @@ class Skill:
     failure_count: int = 0
     created: float = 0.0
     last_used: float = 0.0
+    studied: bool = False              # internalized by sleep training
 
     def __post_init__(self):
         if not self.id:
@@ -199,22 +200,34 @@ class ProceduralMemory:
         )
         return self.learn(skill)
 
+    def mark_studied(self, skill_ids: list[str]) -> None:
+        with self.store.transaction() as cur:
+            for sid in skill_ids:
+                cur.execute("UPDATE skills SET studied=1 WHERE id=?", (sid,))
+
+    def unstudied(self) -> list[Skill]:
+        return [self._row_to_skill(r) for r in
+                self.store.execute(
+                    "SELECT * FROM skills WHERE archived=0 AND studied=0").fetchall()]
+
     # ----------------------------------------------------------------- stats
     def stats(self) -> dict:
         row = self.store.execute(
             """SELECT COUNT(*) c, SUM(trust='verified') v,
                       SUM(success_count) s, SUM(failure_count) f,
-                      SUM(archived) a
+                      SUM(archived) a, SUM(studied) st
                FROM skills""").fetchone()
         return {"count": row["c"] or 0, "verified": row["v"] or 0,
                 "total_successes": row["s"] or 0, "total_failures": row["f"] or 0,
-                "archived": row["a"] or 0}
+                "studied": row["st"] or 0, "archived": row["a"] or 0}
 
     def _row_to_skill(self, r) -> Skill:
+        keys = r.keys()
         return Skill(
             id=r["id"], name=r["name"], description=r["description"],
             triggers=json.loads(r["triggers"]), steps=json.loads(r["steps"]),
             trust=r["trust"], provenance=r["provenance"],
             success_count=r["success_count"], failure_count=r["failure_count"],
             created=r["created"], last_used=r["last_used"] or 0.0,
+            studied=bool(r["studied"]) if "studied" in keys else False,
         )

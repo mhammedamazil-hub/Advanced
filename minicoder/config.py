@@ -74,6 +74,8 @@ class SleepConfig:
     max_stages: int = 7
     new_experiences_trigger: int = 8   # auto-sleep when this many unconsolidated
     idle_trigger_seconds: float = 900.0
+    skill_study_max: int = 12          # max skills internalized per sleep
+    skill_train_steps: int = 40        # adapter steps for skill studying
 
 
 @dataclass

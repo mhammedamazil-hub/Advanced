@@ -102,17 +102,22 @@ class ContinualLearner:
     def level4_train_adapter(self, model: MiniGPT, tokenizer: ByteBPETokenizer,
                              benchmark: BenchmarkFn, *,
                              name: str = "adapter",
-                             corpus_seed: int = 0) -> dict:
-        """Train a LoRA adapter on the legal curriculum corpus.  The adapter is
-        kept ONLY if the benchmark does not regress beyond tolerance."""
-        corpus = build_corpus(samples_per_task=2, seed=corpus_seed)
+                             corpus_seed: int = 0,
+                             texts: Optional[list[str]] = None,
+                             steps: Optional[int] = None) -> dict:
+        """Train a LoRA adapter — on ``texts`` when given (e.g. skill material
+        gathered during sleep), else on the legal curriculum corpus.  The
+        adapter is kept ONLY if the benchmark does not regress beyond
+        tolerance."""
+        corpus = texts if texts else build_corpus(samples_per_task=2,
+                                                  seed=corpus_seed)
         seqs = [tokenizer.encode(t) for t in corpus]
         cfg = self.config.lora
         adapter = LoRAAdapter(model, rank=cfg.rank, alpha=cfg.alpha, seed=1)
         before = benchmark(adapter)                       # adapter neutral ⇒ == base
         trainer = Trainer(model, self.config.train)
-        result = trainer.fit(seqs, steps=cfg.train_steps, adapter=adapter,
-                             adapter_only=True)
+        result = trainer.fit(seqs, steps=steps or cfg.train_steps, adapter=adapter,
+                             adapter_only=True, seq=min(self.config.train.seq_len, 96))
         after = benchmark(adapter)
         regress_ok = (after - before) >= -cfg.regression_tolerance
         decision = "kept" if regress_ok else "discarded"

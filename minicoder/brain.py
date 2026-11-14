@@ -17,6 +17,8 @@ import os
 import numpy as np
 from .memory.system import MemorySystem
 from .memory.episodic import Episode, SUCCESS, FAILURE, UNVERIFIED
+from .memory import constitution
+from .memory.procedural import Skill
 from .metacog import MetaCognition
 from .sleep.engine import SleepEngine, SleepReport
 from .tools.sandbox import Sandbox
@@ -52,7 +54,7 @@ class Brain:
         self.state = AWAKE
         self.last_activity = time.time()
         self.experiences_since_sleep = 0
-        self.last_sleep_report: Optional[dict] = None
+        self.last_sleep_report: Optional[dict] = self._load_last_sleep_report()
         self._sleep_thread: Optional[threading.Thread] = None
         self._sleep_error: Optional[str] = None
         self.birth = self.memory.store.get_meta("birth", None)
@@ -61,6 +63,9 @@ class Brain:
             self.memory.store.set_meta("birth", self.birth)
             self.memory.store.conn.commit()
         self._rng = np.random.default_rng(self.config.train.seed)
+        # the constitution is pinned into working memory at every wake —
+        # the brain always remembers its rules
+        constitution.pin_rules(self.memory)
 
     # ------------------------------------------------------------------ model
     def ensure_model(self, fresh: bool = False) -> MiniGPT:
@@ -239,18 +244,171 @@ class Brain:
         self.state = AWAKE
         return result
 
+    def _load_last_sleep_report(self) -> Optional[dict]:
+        import json
+        row = self.memory.store.execute(
+            "SELECT report FROM sleep_cycles WHERE status='completed' "
+            "ORDER BY started DESC LIMIT 1").fetchone()
+        if row and row["report"]:
+            try:
+                return json.loads(row["report"])
+            except (json.JSONDecodeError, TypeError):
+                return None
+        return None
+
+    # --------------------------------------------------------------- rules
+    def add_rule(self, text: str) -> dict:
+        """Add a standing rule (constitution). Pinned immediately, protected
+        from forgetting, present in every future context."""
+        rule = constitution.add_rule(self.memory, text)
+        return {"id": rule.id, "rule": rule.definition,
+                "total_rules": len(self.rules())}
+
+    def rules(self) -> list[str]:
+        return [r.definition for r in constitution.list_rules(self.memory)]
+
+    # ------------------------------------------------------------------- chat
+    def chat(self, message: str, max_new: int = 90) -> dict:
+        """Conversational interface routed through the cognitive stack.
+
+        Intent router (explicit, deterministic — no hidden prompt magic):
+          'rule: …'          → add a constitution rule
+          'remember: …'      → store a user-provided memory
+          'learn skill: …'   → add a skill (studied during next sleep)
+          'solve <task-id>'  → run the THINK→ACT→VERIFY→LEARN pipeline
+          'sleep'            → enter sleep
+          anything else      → memory-grounded answer generation
+        """
+        self.state = THINKING
+        text = message.strip()
+        low = text.lower()
+        self.perceive("user-message", text, importance=0.6,
+                      tags=["chat"])
+        try:
+            if low.startswith("rule:"):
+                res = self.add_rule(text[5:].strip())
+                return self._chat_reply(
+                    f"Rule locked into my constitution: «{res['rule']}». "
+                    f"I now hold {res['total_rules']} rule(s); they are pinned, "
+                    "protected from forgetting, and loaded at every wake.",
+                    sources=["constitution"], kind="rule-added",
+                    confidence=1.0)
+            if low.startswith("remember:"):
+                ep = Episode(
+                    situation="user asked me to remember",
+                    objective=text[9:].strip(), actions=[], result="stored",
+                    status="success", source="user", confidence=0.9,
+                    salience=0.7, domain="user-knowledge",
+                    lessons=[text[9:].strip()])
+                self.memory.episodic.record(ep)
+                self.experiences_since_sleep += 1
+                return self._chat_reply(
+                    f"Remembered. It will be consolidated into long-term "
+                    f"knowledge during my next sleep cycle.",
+                    sources=[f"episode:{ep.id}"], kind="remembered",
+                    confidence=0.9)
+            if low.startswith("learn skill:") or low.startswith("teach skill:"):
+                body = text.split(":", 1)[1].strip()
+                name, _, code = body.partition("|")
+                skill = Skill(
+                    name=name.strip() or f"skill-{int(time.time())}",
+                    description=f"user-taught skill: {name.strip()}",
+                    triggers=[w for w in name.strip().split()[:6] if w],
+                    steps=[{"action": "run_python", "args": {"code": code.strip()}}]
+                    if code.strip() else [],
+                    provenance="user-taught")
+                self.memory.procedural.learn(skill)
+                return self._chat_reply(
+                    f"Skill «{skill.name}» stored (trust: {skill.trust}). "
+                    "It will be rehearsed and *studied into my weights* at my "
+                    "next sleep — you can also say 'sleep' to start it now.",
+                    sources=[f"skill:{skill.id}"], kind="skill-added",
+                    confidence=0.9)
+            if low.startswith("solve "):
+                from .curriculum import executable_tasks
+                task_id = text[6:].strip()
+                tasks = {t.task_id: t for t in executable_tasks(seed=0)}
+                from .evals.benchmarks import MINI_BENCH
+                tasks.update({t.task_id: t for t in MINI_BENCH})
+                task = tasks.get(task_id)
+                if task is None:
+                    return self._chat_reply(
+                        f"I don't know a task called '{task_id}'. Try e.g. "
+                        "'solve py-fizzbuzz'.", sources=[], kind="error",
+                        confidence=0.0)
+                res = self.solve(task)
+                return self._chat_reply(
+                    f"{'✅ verified' if res.verified else '⚠️ unverified'} "
+                    f"(via {res.via}, confidence {res.confidence})\n\n```python\n{res.code}\n```",
+                    sources=[res.via, f"episode:{res.episode_id}"],
+                    kind="solution", confidence=res.confidence,
+                    extra={"verified": res.verified, "via": res.via})
+            if low == "sleep":
+                return self._chat_reply(self.sleep_async(), sources=[],
+                                        kind="sleep", confidence=1.0)
+            # ---- memory-grounded answer -----------------------------------
+            ks = self.metacog.knowledge_support(text)
+            concepts = self.memory.semantic.query(text, k=3)
+            episodes = self.memory.episodic.recall(text, k=2)
+            skills = self.memory.procedural.recall(text, k=1)
+            rules = constitution.rules_text(self.memory)
+            facts = "\n".join(f"- {c.name}: {c.definition[:120]}"
+                              for c in concepts)
+            prompt = (f"### Rules:\n{rules}\n### Knowledge:\n{facts}\n"
+                      f"### Task: {text}\n### Solution:\n")
+            model = self.ensure_model()
+            ids = self.tokenizer.encode(prompt, add_eos=False)
+            out_ids = model.generate(ids, max_new=max_new, temperature=0.0)
+            answer = self.tokenizer.decode(out_ids).strip()
+            sources = ([c.name for c in concepts]
+                       + [e.objective[:60] for e in episodes]
+                       + [s.name for s in skills])
+            conf = self.metacog.estimate_confidence(text)
+            if not answer and ks["support"] < 0.25:
+                answer = ("I don't reliably know this yet. Teach me with "
+                          "'remember: …' or 'learn skill: <name> | <python code>' "
+                          "and I will study it in my next sleep.")
+            elif answer and ks["support"] < 0.25:
+                answer = "(low prior knowledge — treat this as a guess)\n" + answer
+            self.perceive("assistant-reply", answer[:300], importance=0.5,
+                          tags=["chat"])
+            ep = Episode(
+                situation="chat conversation", objective=text[:200],
+                actions=["model-generate with memory context"],
+                result=answer[:300], status=UNVERIFIED,
+                source="hypothesis", confidence=conf, salience=0.4,
+                domain="chat")
+            self.memory.episodic.record(ep)
+            self.experiences_since_sleep += 1
+            return self._chat_reply(answer, sources=sources, kind="answer",
+                                    confidence=conf,
+                                    extra={"knowledge_support": ks["support"]})
+        finally:
+            self.state = AWAKE
+            self.last_activity = time.time()
+
+    def _chat_reply(self, answer: str, *, sources: list[str], kind: str,
+                    confidence: float, extra: Optional[dict] = None) -> dict:
+        out = {"answer": answer, "kind": kind, "confidence": confidence,
+               "sources": sources, "timestamp": time.time()}
+        if extra:
+            out.update(extra)
+        return out
+
     # ------------------------------------------------------------------- sleep
     def sleep(self, resume_cycle: Optional[str] = None) -> SleepReport:
-        """Blocking sleep cycle: replay → consolidate → … → improve → wake."""
+        """Blocking sleep cycle: replay → consolidate → … → skill-study → wake."""
         if self.state == SLEEPING:
             raise RuntimeError("already sleeping")
         self.state = SLEEPING
         engine = SleepEngine(self.memory, self.config, self.sandbox,
-                             practice_solver=self._practice_solver)
+                             practice_solver=self._practice_solver,
+                             skill_trainer=self._skill_trainer)
         report = engine.run(resume_cycle=resume_cycle)
         self.last_sleep_report = report.to_dict()
         self.experiences_since_sleep = 0
         self.state = AWAKE
+        constitution.pin_rules(self.memory)    # rules back in live context
         return report
 
     def sleep_async(self) -> str:
@@ -263,7 +421,8 @@ class Brain:
         def _runner():
             try:
                 engine = SleepEngine(self.memory, self.config, self.sandbox,
-                                     practice_solver=self._practice_solver)
+                                     practice_solver=self._practice_solver,
+                                     skill_trainer=self._skill_trainer)
                 report = engine.run()
                 self.last_sleep_report = report.to_dict()
             except Exception as exc:           # noqa: BLE001
@@ -271,6 +430,7 @@ class Brain:
             finally:
                 self.experiences_since_sleep = 0
                 self.state = AWAKE
+                constitution.pin_rules(self.memory)
         self._sleep_thread = threading.Thread(target=_runner, daemon=True)
         self._sleep_thread.start()
         return "sleep started"
@@ -280,13 +440,37 @@ class Brain:
         result = self.solve(task, max_new=80, record=False)
         return result.code
 
+    def _skill_trainer(self, texts: list[str], skill_names: list[str]) -> dict:
+        """Sleep stage 6 callback: internalize skills via gated LoRA training."""
+        from .learning.continual import ContinualLearner
+        from .evals.benchmarks import evaluate_solver, MINI_BENCH
+        from .demo import _adapter_solver, _pure_model_solver
+        model = self.ensure_model()
+        cl = ContinualLearner(self.config, self.memory, self.sandbox,
+                              self.checkpoints)
+        bench_subset = [MINI_BENCH[i] for i in (1, 4, 6, 10)
+                        if i < len(MINI_BENCH)]
+
+        def bench(adapter=None):
+            solver = (_pure_model_solver(self) if adapter is None
+                      else _adapter_solver(self, adapter))
+            return evaluate_solver(solver, self.sandbox, bench_subset)["score"]
+
+        return cl.level4_train_adapter(
+            model, self.tokenizer, bench,
+            name=f"skill-study-{int(time.time())}", texts=texts,
+            steps=self.config.sleep.skill_train_steps)
+
     # -------------------------------------------------------------------- wake
     def wake(self) -> dict:
         self.state = AWAKE
         self.memory.working.clear(keep_pinned=True)
-        self.perceive("note", f"woke at {time.strftime('%H:%M:%S')}",
+        n_rules = constitution.pin_rules(self.memory)
+        self.perceive("note", f"woke at {time.strftime('%H:%M:%S')} "
+                              f"({n_rules} constitution rules loaded)",
                       importance=0.2)
-        return {"state": self.state, "working": self.memory.working.stats()}
+        return {"state": self.state, "working": self.memory.working.stats(),
+                "rules_loaded": n_rules}
 
     def tick(self) -> Optional[str]:
         """Auto-sleep triggers: idleness or accumulated experiences."""

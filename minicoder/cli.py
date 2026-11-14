@@ -114,6 +114,45 @@ def cmd_dashboard(brain: Brain, args) -> int:
     return 0
 
 
+def cmd_chat(brain: Brain, args) -> int:
+    """Interactive chat REPL routed through the whole cognitive stack."""
+    brain.ensure_model()
+    print("🧠 MINICODER chat — intents: 'rule: …' | 'remember: …' | "
+          "'learn skill: name | python code' | 'solve <task-id>' | 'sleep' | /exit")
+    print(f"   constitution rules loaded: {len(brain.rules())}")
+    if args.oneshot:
+        out = brain.chat(args.oneshot)
+        print(out["answer"])
+        return 0
+    while True:
+        try:
+            line = input("you> ").strip()
+        except (EOFError, KeyboardInterrupt):
+            print()
+            break
+        if line in ("/exit", "/quit", "exit", "quit"):
+            break
+        if not line:
+            continue
+        out = brain.chat(line)
+        conf = int(round((out.get("confidence") or 0) * 100))
+        print(f"brain[{out['kind']}, conf {conf}%]> {out['answer']}")
+        if out.get("sources"):
+            print("   sources:", " · ".join(out["sources"])[:160])
+    return 0
+
+
+def cmd_rule(brain: Brain, args) -> int:
+    print(json.dumps(brain.add_rule(args.text), indent=2))
+    return 0
+
+
+def cmd_rules(brain: Brain, args) -> int:
+    rules = brain.rules()
+    print(json.dumps({"rules": rules, "count": len(rules)}, indent=2))
+    return 0
+
+
 def cmd_learn(brain: Brain, args) -> int:
     from .learning.continual import ContinualLearner
     from .evals.benchmarks import evaluate_solver, MINI_BENCH
@@ -194,6 +233,13 @@ def main(argv=None) -> int:
 
     p = sub.add_parser("dashboard"); p.add_argument("--port", type=int, default=8000)
     p.set_defaults(fn=cmd_dashboard)
+
+    p = sub.add_parser("chat"); p.add_argument("--say", dest="oneshot", default=None,
+        help="single message instead of REPL")
+    p.set_defaults(fn=cmd_chat)
+
+    p = sub.add_parser("rule"); p.add_argument("text"); p.set_defaults(fn=cmd_rule)
+    sub.add_parser("rules").set_defaults(fn=cmd_rules)
 
     p = sub.add_parser("demo"); p.add_argument("--fast", action="store_true")
     p.set_defaults(fn=cmd_demo)

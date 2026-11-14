@@ -89,6 +89,7 @@ td,th{padding:4px 6px;border-bottom:1px solid var(--border);text-align:left;vert
     <div class="log mut" id="wm-list" style="margin-top:8px"></div>
   </section>
   <section class="card"><h2>Long-Term Memory</h2>
+    <!-- studied = internalized into model weights during sleep training -->
     <div class="kv"><span>📼 episodes</span><b id="ep-c">0</b></div>
     <div class="kv"><span>&nbsp;&nbsp;verified</span><b class="ok" id="ep-s">0</b></div>
     <div class="kv"><span>&nbsp;&nbsp;failed</span><b class="bad" id="ep-f">0</b></div>
@@ -115,6 +116,25 @@ td,th{padding:4px 6px;border-bottom:1px solid var(--border);text-align:left;vert
   </section>
   <section class="card"><h2>Learning History (L1–L5)</h2><div id="learn"></div></section>
   <section class="card"><h2>Knowledge Graph (top nodes)</h2><div id="graph"></div></section>
+  <section class="card" style="grid-column: span 2"><h2>💬 Chat with the Brain</h2>
+    <div class="log" id="chat-log" style="max-height:260px;min-height:120px"></div>
+    <div class="controls" style="margin-top:8px">
+      <input id="chat-in" placeholder="ask, or: rule: … / remember: … / learn skill: name | code / solve <task> / sleep"
+             style="flex:1;min-width:300px;background:#0d1117;color:var(--fg);border:1px solid var(--border);border-radius:6px;padding:8px;font:inherit;font-size:12px"
+             onkeydown="if(event.key==='Enter')sendChat()">
+      <button onclick="sendChat()">Send</button>
+    </div>
+    <div class="mut" style="font-size:11px;margin-top:6px">intents: <code>rule: text</code> · <code>remember: text</code> · <code>learn skill: name | python</code> · <code>solve py-fizzbuzz</code> · <code>sleep</code></div>
+  </section>
+  <section class="card"><h2>📜 Constitution (always remembered)</h2>
+    <div id="rules"></div>
+    <div class="controls" style="margin-top:8px">
+      <input id="rule-in" placeholder="new standing rule…" style="flex:1;background:#0d1117;color:var(--fg);border:1px solid var(--border);border-radius:6px;padding:6px;font:inherit;font-size:12px"
+             onkeydown="if(event.key==='Enter')addRule()">
+      <button class="ghost" onclick="addRule()">➕ Add rule</button>
+    </div>
+    <div class="mut" style="font-size:11px;margin-top:6px">Rules are facts in domain <code>constitution</code>, pinned in working memory at every wake, and immune to the forgetting stage.</div>
+  </section>
 </main>
 <script>
 const $=id=>document.getElementById(id);
@@ -126,6 +146,32 @@ async function act(name,opts){
   }catch(e){$('notice').textContent='error: '+e;}
 }
 function imp(){const p=$('imp').value.trim();if(p)act('import',{path:p});}
+async function sendChat(){
+  const t=$('chat-in').value.trim();if(!t)return;
+  const log=$('chat-log');
+  log.innerHTML+=`<div style="margin:6px 0"><b style="color:var(--acc)">you:</b> ${t.replace(/</g,'&lt;')}</div>`;
+  log.innerHTML+=`<div class="mut" id="thinking">🧠 thinking…</div>`;log.scrollTop=log.scrollHeight;
+  $('chat-in').value='';
+  try{
+    const r=await fetch('/api/chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({message:t})});
+    const j=await r.json();
+    document.getElementById('thinking').remove();
+    const esc=(j.answer||'').replace(/</g,'&lt;').replace(/\n/g,'<br>');
+    const src=(j.sources&&j.sources.length)?` <span class="mut">[${j.sources.join(' · ')}]</span>`:'';
+    log.innerHTML+=`<div style="margin:6px 0"><b style="color:var(--ok)">brain:</b> ${esc}${src} <span class="mut">conf ${((j.confidence||0)*100).toFixed(0)}%</span></div>`;
+    log.scrollTop=log.scrollHeight;refresh();
+  }catch(e){document.getElementById('thinking')?.remove();log.innerHTML+=`<div class="bad">error: ${e}</div>`;}
+}
+async function addRule(){
+  const t=$('rule-in').value.trim();if(!t)return;
+  await act('rule',{text:t});
+  $('rule-in').value='';
+  loadRules();
+}
+async function loadRules(){
+  const rs=await(await fetch('/api/rules')).json();
+  $('rules').innerHTML=rs.length?rs.map(r=>`<div class="kv"><span>📌 ${r.definition}</span></div>`).join(''):'<span class="mut">no rules yet — add one above; the brain keeps it forever</span>';
+}
 async function refresh(){
   const s=await (await fetch('/api/status')).json();
   const st=$('state');st.textContent=s.state;st.className='badge s-'+s.state;
@@ -137,7 +183,7 @@ async function refresh(){
   $('ep-f').textContent=e.failure;$('ep-cons').textContent=e.consolidated;
   const m=s.memory.semantic;$('sem-c').textContent=m.count;$('sem-f').textContent=m.facts;
   $('sem-h').textContent=m.hypotheses;$('sem-e').textContent=m.edges;
-  $('sk-c').textContent=s.memory.procedural.count+' ('+s.memory.procedural.verified+'✓)';
+  $('sk-c').textContent=s.memory.procedural.count+' ('+s.memory.procedural.verified+'✓, '+(s.memory.procedural.studied||0)+' studied)';
   $('db-size').textContent=fmtKB(s.memory.db_bytes);
   const mc=s.metacognition;$('mc-task').textContent=mc.current_task||'—';
   $('mc-conf').textContent=mc.confidence==null?'—':(100*mc.confidence).toFixed(0)+'%';
@@ -163,7 +209,7 @@ async function refresh(){
   const top=g.nodes.map(n=>({n,d:deg[n.id]||0})).sort((a,b)=>b.d-a.d).slice(0,8);
   $('graph').innerHTML=top.map(t=>`<div class="kv"><span class="${t.n.status==='fact'?'ok':'warn'}"><span class="dot" style="background:${t.n.status==='fact'?'var(--ok)':'var(--warn)'}"></span>${t.n.name.slice(0,60)}</span><b>${t.d}</b></div>`).join('');
 }
-refresh();setInterval(refresh,2500);
+refresh();setInterval(refresh,2500);loadRules();
 </script></body></html>
 """
 
@@ -217,10 +263,16 @@ def make_app(brain: Brain):
             if path == "/api/memory/procedural":
                 return self._json([
                     {"id": s.id, "name": s.name, "trust": s.trust,
-                     "success": s.success_count, "failure": s.failure_count}
+                     "success": s.success_count, "failure": s.failure_count,
+                     "studied": s.studied}
                     for s in brain.memory.procedural.all_active()])
             if path == "/api/graph":
                 return self._json(brain.memory.semantic.graph_snapshot())
+            if path == "/api/rules":
+                return self._json([
+                    {"id": r.id, "definition": r.definition,
+                     "created": r.created}
+                    for r in brain.memory.semantic.by_domain("constitution")])
             if path == "/api/sleep/history":
                 rows = brain.memory.store.execute(
                     "SELECT id, started, ended, status FROM sleep_cycles "
@@ -283,6 +335,16 @@ def make_app(brain: Brain):
                 brain.perceive(payload.get("kind", "note"),
                                payload.get("content", ""))
                 return self._json({"message": "perceived"})
+            if path == "/api/chat":
+                msg = payload.get("message", "")
+                if not msg.strip():
+                    return self._json({"error": "empty message"}, 400)
+                return self._json(brain.chat(msg))
+            if path == "/api/rule":
+                text = payload.get("text", "")
+                if not text.strip():
+                    return self._json({"error": "empty rule"}, 400)
+                return self._json(brain.add_rule(text))
             return self._json({"error": "not found"}, 404)
 
     return Handler

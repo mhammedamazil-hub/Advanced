@@ -22,6 +22,10 @@ from . import textsim
 
 FACT, HYPOTHESIS, OUTDATED = "fact", "hypothesis", "outdated"
 
+# Domains that the forgetting/organization stages must never archive or decay:
+# the brain's standing rules (constitution) live here.
+PROTECTED_DOMAINS = frozenset({"constitution"})
+
 
 @dataclass
 class Concept:
@@ -225,6 +229,12 @@ class SemanticMemory:
 
     def all_active(self) -> list[Concept]:
         rows = self.store.execute("SELECT * FROM concepts WHERE archived=0").fetchall()
+        return [self._row_to_concept(r) for r in rows]
+
+    def by_domain(self, domain: str) -> list[Concept]:
+        rows = self.store.execute(
+            "SELECT * FROM concepts WHERE archived=0 AND domain=? ORDER BY created",
+            (domain,)).fetchall()
         return [self._row_to_concept(r) for r in rows]
 
     def contradictions(self, unresolved_only: bool = True) -> list[dict]:

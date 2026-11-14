@@ -40,6 +40,10 @@ class Trainer:
     # -------------------------------------------------------------- batching
     def make_batch(self, stream: np.ndarray, batch: int, seq: int,
                    rng: np.random.Generator) -> tuple[np.ndarray, np.ndarray]:
+        if len(stream) < seq + 2:
+            # tile short streams (e.g. a single skill's tokens) so slices match
+            reps = (seq + 2) // max(1, len(stream)) + 1
+            stream = np.concatenate([stream] * reps)
         hi = len(stream) - seq - 1
         starts = rng.integers(0, max(1, hi), size=batch)
         x = np.stack([stream[s:s + seq] for s in starts]).astype(np.int64)
