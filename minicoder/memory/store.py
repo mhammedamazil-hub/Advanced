@@ -179,6 +179,12 @@ class Store:
         self.conn = self._open_or_recover(path)
         with self.conn:
             self.conn.executescript(SCHEMA)
+            # migration: skills gain a 'studied' flag (sleep skill-training)
+            try:
+                self.conn.execute(
+                    "ALTER TABLE skills ADD COLUMN studied INTEGER NOT NULL DEFAULT 0")
+            except sqlite3.OperationalError:
+                pass                              # column already exists
             self.set_meta("schema_version", SCHEMA_VERSION)
 
     # ------------------------------------------------------------------ open

@@ -57,6 +57,7 @@ class SleepReport:
     marked_outdated: list = field(default_factory=list)
     archived: list = field(default_factory=list)
     practice: list = field(default_factory=list)
+    skills_studied: list = field(default_factory=list)   # internalized by training
     weaknesses: dict = field(default_factory=dict)
     unresolved: list = field(default_factory=list)
     notes: list = field(default_factory=list)
@@ -65,14 +66,19 @@ class SleepReport:
         return asdict(self)
 
 
+SkillTrainer = Callable[[list[str], list[str]], dict]
+
+
 class SleepEngine:
     def __init__(self, memory: MemorySystem, config: BrainConfig,
                  sandbox: Sandbox,
-                 practice_solver: Optional[PracticeSolver] = None):
+                 practice_solver: Optional[PracticeSolver] = None,
+                 skill_trainer: Optional[SkillTrainer] = None):
         self.memory = memory
         self.config = config
         self.sandbox = sandbox
         self.practice_solver = practice_solver
+        self.skill_trainer = skill_trainer    # (texts, skill_names) -> metrics
         self.report = SleepReport()
 
     # ------------------------------------------------------------- entrypoints
@@ -315,8 +321,12 @@ class SleepEngine:
                 self.memory.episodic.archive(e.id, "retention decay", compressed)
                 self.report.archived.append({"kind": "episode", "id": e.id,
                                              "retention": round(retention, 4)})
-        # concepts: only weak, unsupported hypotheses may be archived
+        # concepts: only weak, unsupported hypotheses may be archived;
+        # protected domains (e.g. constitution rules) are immortal
+        from ..memory.semantic import PROTECTED_DOMAINS
         for c in self.memory.semantic.all_active():
+            if c.domain in PROTECTED_DOMAINS:
+                continue
             age_h = (now - c.updated) / 3600.0
             base = (0.30 * c.importance + 0.25 * c.confidence
                     + 0.20 * min(1.0, c.access_count / 5.0)
@@ -354,6 +364,66 @@ class SleepEngine:
             for task in tasks:
                 outcome = self._run_practice(task)
                 self.report.practice.append(outcome)
+        self._study_new_skills()
+
+    def _study_new_skills(self) -> None:
+        """Internalize newly added skills by actually TRAINING on them.
+
+        Each unstudied skill is rendered into instruction-style training text
+        (its trigger + its executable steps), then the skill adapter learns it:
+        the training is benchmark-gated (level-4 rules), and the skill is
+        marked ``studied`` only if the adapter survived the gate.
+        """
+        if self.skill_trainer is None:
+            return
+        new_skills = self.memory.procedural.unstudied()
+        if not new_skills:
+            return
+        new_skills = new_skills[: self.config.sleep.skill_study_max]
+        texts: list[str] = []
+        names: list[str] = []
+        ids: list[str] = []
+        for s in new_skills:
+            body_lines: list[str] = []
+            for step in s.steps:
+                action, args = step.get("action"), step.get("args", {})
+                if action == "run_python":
+                    body_lines.append(args.get("code", "").strip())
+                elif action == "run_shell":
+                    body_lines.append("# shell: " + args.get("cmd", "").strip())
+                elif action == "write_file":
+                    body_lines.append(f"# write {args.get('path','?')}\n"
+                                      f"{args.get('content','')[:200]}")
+                elif action == "think":
+                    body_lines.append("# plan: " + args.get("note", "").strip())
+            body = "\n".join(b for b in body_lines if b).strip() or "# (no code steps)"
+            triggers = ", ".join(s.triggers[:6])
+            texts.append(
+                f"### Task: {s.name} — {s.description}\n"
+                f"### Keywords: {triggers}\n"
+                f"### Solution:\n{body}\n### End\n")
+            names.append(s.name)
+            ids.append(s.id)
+        try:
+            result = self.skill_trainer(texts, names)
+        except Exception as exc:                    # noqa: BLE001
+            self.report.notes.append(f"skill study failed: {exc!r}")
+            self.report.unresolved.append("skill study failed; retry next sleep")
+            return
+        if result.get("decision") == "kept":
+            self.memory.procedural.mark_studied(ids)
+            self.report.skills_studied = names
+            self.memory.episodic.record(Episode(
+                situation="sleep stage 6", objective="study new skills",
+                actions=[f"trained adapter on {len(ids)} skills"],
+                result=f"internalized: {', '.join(names)}",
+                status=SUCCESS, source="sleep-skill-training", confidence=0.85,
+                salience=0.7, domain="meta-learning",
+                lessons=[f"Skill(s) studied during sleep: {', '.join(names)}"]))
+        else:
+            self.report.notes.append(
+                f"skill study adapter rejected by benchmark gate: {result.get('benchmark_before')} -> {result.get('benchmark_after')}")
+            self.report.unresolved.append(f"skills not yet internalized: {', '.join(names)}")
 
     def _run_practice(self, task: curriculum.Task) -> dict:
         record = {"task_id": task.task_id, "domain": task.domain,

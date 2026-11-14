@@ -28,7 +28,7 @@ python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
 .venv/bin/pip install pytest && .venv/bin/python -m pytest tests/ -q
 ```
 
-## What exists (all implemented, all tested — 68 tests)
+## What exists (all implemented, all tested — 80 tests)
 
 | Claim in spec | Where it lives | Proof |
 |---|---|---|
@@ -140,7 +140,26 @@ minicoder/
   evals/   benchmarks.py memory_eval.py
   dashboard/server.py  (single-page UI, no JS deps)
   cli.py  demo.py
-tests/                68 tests across all subsystems
+tests/                80 tests across all subsystems
 docs/                 ARCHITECTURE.md EXTERNAL_DATA.md
 .github/workflows/    ci.yml · sleep_cycle.yml (nightly) · train.yml (manual, gated)
 ```
+
+## 💬 Chatbot · 📜 Constitution · 🎓 Skill-studying sleep
+
+**Chatbot & coder** — talk to the brain (CLI REPL or dashboard chat card or `POST /api/chat`):
+
+```bash
+.venv/bin/python -m minicoder.cli chat          # REPL
+# you> rule: never run destructive shell commands      # → constitution
+# you> remember: our API runs on port 9000             # → episodic memory
+# you> learn skill: add numbers | def add(a,b):\n return a+b   # → procedural
+# you> solve py-fizzbuzz                               # → verified coding
+# you> sleep                                           # → enter sleep
+```
+
+Open questions are answered **memory-grounded**: the reply cites the concepts/episodes/skills it used (`sources`), states numeric `confidence`, and honestly says *"I don't know this yet — teach me"* when support is low.
+
+**Constitution (rules it never forgets)** — rules are semantic facts in the protected `constitution` domain: pinned into working memory at every wake/startup, injected into chat context, and **immune to the forgetting stage** (tested: a 100-day-old rule survives decay archival).
+
+**Skill *studying* during sleep (real training, not just storage)** — sleep stage 6 now takes unstudied skills, renders their steps into instruction-format training samples, and runs the **level-4 gated LoRA training** on them. The adapter is kept only if the benchmark doesn't regress; only then is the skill marked `studied: true`. So: *teach a skill today, and after the next sleep the brain has actually studied it* — plus the episode, the checkpoint, and the learn-log record proving it.
