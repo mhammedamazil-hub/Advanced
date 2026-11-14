@@ -1,0 +1,18 @@
+# Runtime brain state / learned artifacts (regenerated, not source)
+data/
+memory/
+*.db
+*.db.bak.*
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+dist/
+build/
+
+# Demos / reports
+demo_output/

@@ -1,0 +1,94 @@
+name: Brain Sleep Cycle (scheduled consolidation + training)
+
+# Runs the brain's autonomous maintenance: simulated experience → training →
+# sleep consolidation → evaluation.  Reports are committed back to the repo so
+# the "brain" accumulates a dated public history of its own learning.
+
+on:
+  schedule:
+    - cron: "0 3 * * *"        # nightly at 03:00 UTC
+  workflow_dispatch:
+    inputs:
+      train_steps:
+        description: "compact-model training steps"
+        required: false
+        default: "200"
+
+permissions:
+  contents: write
+
+jobs:
+  sleep-cycle:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install
+        run: pip install -r requirements.txt
+      - name: Run lifecycle (experience → train → sleep → evaluate)
+        run: |
+          STEPS=${{ github.event.inputs.train_steps || '200' }}
+          python - <<'EOF'
+          import json, os, time
+          from minicoder.brain import Brain
+          from minicoder.config import BrainConfig
+          from minicoder.curriculum import executable_tasks
+          from minicoder.evals.benchmarks import evaluate_solver
+          from minicoder.demo import _pure_model_solver
+          from minicoder.evals import memory_eval
+
+          os.makedirs("reports", exist_ok=True)
+          brain = Brain(BrainConfig(base_dir="data"))
+          if os.path.exists("reports/memory-export.json"):
+              brain.memory.import_all("reports/memory-export.json")
+          brain.ensure_model()
+          t0 = time.time()
+          brain.train_base(steps=int(os.environ.get("STEPS", "200")))
+          tasks = executable_tasks(seed=0)[:12]
+          for t in tasks:
+              brain.solve(t, record=True)
+          report = brain.sleep().to_dict()
+          held = evaluate_solver(_pure_model_solver(brain), brain.sandbox)
+          ret = memory_eval.retrieval_precision(brain.memory)
+          brain.memory.export_all("reports/memory-export.json")
+          summary = {
+              "utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+              "duration_s": round(time.time() - t0, 1),
+              "held_out_score": held["score"],
+              "retrieval_hit@3": ret["hit@3"],
+              "sleep": {k: report[k] for k in
+                        ("cycle_id", "status", "stage_timings", "weaknesses")},
+              "new_concepts": len(report["new_concepts"]),
+              "patterns": report["pattern_concepts"],
+              "archived": len(report["archived"]),
+              "memory": brain.memory.stats(),
+          }
+          with open(f"reports/sleep-{int(time.time())}.json", "w") as fh:
+              json.dump(summary, fh, indent=2, default=str)
+          print(json.dumps(summary, indent=2, default=str))
+          brain.close()
+          EOF
+        env:
+          STEPS: ${{ github.event.inputs.train_steps || '200' }}
+        timeout-minutes: 25
+      - name: Commit learning report
+        run: |
+          git config user.name "minicoder-bot"
+          git config user.email "minicoder-bot@users.noreply.github.com"
+          git add reports/
+          git diff --cached --quiet || git commit -m "chore(brain): nightly sleep cycle report $(date -u +%F)"
+          git push
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: brain-state
+          path: |
+            reports/
+            data/memory/checkpoints/
+            data/memory/sleep_logs/
+          retention-days: 30
