@@ -29,6 +29,26 @@ jobs:
         with:
           gradle-version: '8.10.2'
 
+      - name: Probe Chaquopy wheel index for numpy (cp311/arm64)
+        run: |
+          # Chaquopy only ships prebuilt wheels for specific numpy versions;
+          # building numpy from source on Android is impossible.  Ask their
+          # index which cp311 wheels exist and pin that exact version.
+          for idx in pypi-13 pypi-7.0 pypi-13.2 pypi-16; do
+            curl -s "https://chaquo.com/$idx/numpy/" -o npindex.html && break
+          done
+          grep -oE 'numpy-[0-9][0-9.]*-[^"#]*cp311[^"#]*arm64_v8a[^"#]*\.whl' npindex.html | sort -u > npwheels.txt || true
+          echo "::wheel candidates::"; cat npwheels.txt
+          VER=$(grep -oE 'numpy-[0-9][0-9.]*' npwheels.txt | sed 's/numpy-//' | sort -V | tail -n1 || true)
+          if [ -n "$VER" ]; then
+            echo "pinning numpy==$VER"
+            sed -i "s|install 'numpy[^']*'|install 'numpy==$VER'|" android/app/build.gradle
+          else
+            echo "no cp311 numpy wheel found in index listing; leaving unpinned so Chaquopy resolves"
+            sed -i "s|install 'numpy[^']*'|install 'numpy'|" android/app/build.gradle
+          fi
+          grep -n numpy android/app/build.gradle
+
       - name: Build debug APK
         id: build
         run: |
