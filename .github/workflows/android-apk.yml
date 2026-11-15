@@ -42,9 +42,9 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           echo '```' > body.md
-          grep -nE "FAILURE|What went wrong|Execution failed|Caused by|error:|Exception|LICENSE" build.log | tail -n 40 >> body.md || true
-          echo '--- tail ---' >> body.md
-          tail -n 30 build.log >> body.md || true
+          grep -B5 "For assistance, please raise" build.log | tail -n 60 >> body.md || true
+          echo '--- grep ---' >> body.md
+          grep -nE "FAILURE|What went wrong|ERROR|Could not find|No matching" build.log | tail -n 40 >> body.md || true
           echo '```' >> body.md
           gh issue comment 6 --repo $GITHUB_REPOSITORY --body-file body.md
 
