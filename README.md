@@ -163,3 +163,26 @@ Open questions are answered **memory-grounded**: the reply cites the concepts/ep
 **Constitution (rules it never forgets)** — rules are semantic facts in the protected `constitution` domain: pinned into working memory at every wake/startup, injected into chat context, and **immune to the forgetting stage** (tested: a 100-day-old rule survives decay archival).
 
 **Skill *studying* during sleep (real training, not just storage)** — sleep stage 6 now takes unstudied skills, renders their steps into instruction-format training samples, and runs the **level-4 gated LoRA training** on them. The adapter is kept only if the benchmark doesn't regress; only then is the skill marked `studied: true`. So: *teach a skill today, and after the next sleep the brain has actually studied it* — plus the episode, the checkpoint, and the learn-log record proving it.
+
+## 📱 Android app (phone client)
+
+A minimal WebView APK that turns any running MiniCoder dashboard into a
+native-feeling app. The brain stays where it is fast (PC / server / sandbox);
+the phone is the screen and the senses:
+
+1. **Get the APK**: `Actions → "Android APK (MiniCoder Brain)" → latest green
+   run → Artifacts → minicoder-brain-android-apk.zip` → unzip → install
+   `app-debug.apk` (allow "install from unknown sources").
+2. **Start the brain**: on your PC run
+   `python -m minicoder.cli dashboard --port 8000` (binds 0.0.0.0).
+3. In the app, enter `http://<your-pc-ip>:8000` (same Wi-Fi) — find the IP
+   with `ip a` (Linux) / `ipconfig` (Windows). The ⚙ button reopens settings.
+
+Chat, sleep cycles, rules and skill studying all work through the app —
+it is the same dashboard UI, so everything new shows up on the phone
+automatically with no app updates.
+
+*Want the whole brain ON the phone instead? Use Termux:
+`pkg install python && pip install numpy && git clone … && python -m
+minicoder.cli chat` — works, chat/intents are instant; model generation is
+slow because the engine is pure-NumPy CPU.*
