@@ -33,7 +33,7 @@ jobs:
         id: build
         run: |
           set -o pipefail
-          gradle -p android assembleDebug --no-daemon --stacktrace 2>&1 | tee build.log | tail -n 200
+          gradle -p android assembleDebug --no-daemon 2>&1 | tee build.log | tail -n 60
           test -f android/app/build/outputs/apk/debug/app-debug.apk
 
       - name: Post build log on failure
@@ -42,7 +42,9 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           echo '```' > body.md
-          tail -n 120 build.log >> body.md || true
+          grep -nE "FAILURE|What went wrong|Execution failed|Caused by|error:|Exception|LICENSE" build.log | tail -n 40 >> body.md || true
+          echo '--- tail ---' >> body.md
+          tail -n 30 build.log >> body.md || true
           echo '```' >> body.md
           gh issue comment 6 --repo $GITHUB_REPOSITORY --body-file body.md
 
