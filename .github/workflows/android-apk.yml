@@ -7,6 +7,10 @@ on:
       - '.github/workflows/android-apk.yml'
   workflow_dispatch:
 
+permissions:
+  contents: read
+  issues: write       # lets the failure step post build logs to issue #6
+
 jobs:
   apk:
     runs-on: ubuntu-latest
@@ -26,7 +30,21 @@ jobs:
           gradle-version: '8.10.2'
 
       - name: Build debug APK
-        run: gradle -p android assembleDebug --no-daemon --stacktrace 2>&1 | tail -c 160000
+        id: build
+        run: |
+          set -o pipefail
+          gradle -p android assembleDebug --no-daemon --stacktrace 2>&1 | tee build.log | tail -n 200
+          test -f android/app/build/outputs/apk/debug/app-debug.apk
+
+      - name: Post build log on failure
+        if: failure() && steps.build.outcome == 'failure'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          echo '```' > body.md
+          tail -n 120 build.log >> body.md || true
+          echo '```' >> body.md
+          gh issue comment 6 --repo $GITHUB_REPOSITORY --body-file body.md
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
