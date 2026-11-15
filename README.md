@@ -164,25 +164,25 @@ Open questions are answered **memory-grounded**: the reply cites the concepts/ep
 
 **Skill *studying* during sleep (real training, not just storage)** — sleep stage 6 now takes unstudied skills, renders their steps into instruction-format training samples, and runs the **level-4 gated LoRA training** on them. The adapter is kept only if the benchmark doesn't regress; only then is the skill marked `studied: true`. So: *teach a skill today, and after the next sleep the brain has actually studied it* — plus the episode, the checkpoint, and the learn-log record proving it.
 
-## 📱 Android app (phone client)
+## 📱 Android app — the brain runs ON your phone, offline
 
-A minimal WebView APK that turns any running MiniCoder dashboard into a
-native-feeling app. The brain stays where it is fast (PC / server / sandbox);
-the phone is the screen and the senses:
+The APK carries only the **language runtime** (Python + NumPy, ~35 MB). The
+brain itself — every `minicoder/` source file — is downloaded **straight
+from GitHub** the first time you open the app:
 
-1. **Get the APK**: `Actions → "Android APK (MiniCoder Brain)" → latest green
-   run → Artifacts → minicoder-brain-android-apk.zip` → unzip → install
-   `app-debug.apk` (allow "install from unknown sources").
-2. **Start the brain**: on your PC run
-   `python -m minicoder.cli dashboard --port 8000` (binds 0.0.0.0).
-3. In the app, enter `http://<your-pc-ip>:8000` (same Wi-Fi) — find the IP
-   with `ip a` (Linux) / `ipconfig` (Windows). The ⚙ button reopens settings.
+1. **Actions → "Android APK (MiniCoder Brain)" → latest green run →
+   Artifacts → minicoder-brain-android-apk.zip → unzip → install the APK**
+   (allow "install from unknown sources").
+2. Open the app → tap **⬇ Download brain files from GitHub**. It fetches
+   the repo zip, extracts it into app-private storage, and boots the brain.
+3. **Offline from then on** — chat, constitution rules, skill teaching +
+   actual sleep-training, knowledge graph, the dashboard: all of it runs
+   on the phone's own CPU, no internet, no PC, no server.
+   (Update it later with ⚙ → Download again = pull latest main from GitHub.)
 
-Chat, sleep cycles, rules and skill studying all work through the app —
-it is the same dashboard UI, so everything new shows up on the phone
-automatically with no app updates.
+Still included: an optional **remote mode** to connect to a brain dashboard
+hosted on a PC/server (useful while training remains CPU-heavy).
 
-*Want the whole brain ON the phone instead? Use Termux:
-`pkg install python && pip install numpy && git clone … && python -m
-minicoder.cli chat` — works, chat/intents are instant; model generation is
-slow because the engine is pure-NumPy CPU.*
+Honest expectations: chat intents, memory, rules and sleep bookkeeping are
+instant; *model generation/training* works but is slow on a phone CPU —
+the engine is pure-NumPy by design. Python runtime © Chaquopy (MIT license).
