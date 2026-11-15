@@ -1,0 +1,78 @@
+{
+  "utc": "2026-11-15T10:14:15Z",
+  "duration_s": 54.7,
+  "held_out_score": 0.05,
+  "retrieval_hit@3": 0.875,
+  "sleep": {
+    "cycle_id": "sleep-21b181ea",
+    "status": "completed",
+    "stage_timings": {
+      "replay": 0.0,
+      "consolidation": 0.005,
+      "pattern_discovery": 0.008,
+      "organization": 0.001,
+      "forgetting": 0.0,
+      "learning": 1.761,
+      "wake": 0.0
+    },
+    "weaknesses": {
+      "algorithms": 5,
+      "python-basics": 4,
+      "python-strings": 3
+    }
+  },
+  "new_concepts": 24,
+  "patterns": [
+    {
+      "id": "39d180a1490120ac",
+      "name": "pattern: syntaxerror in python-basics",
+      "members": 4
+    },
+    {
+      "id": "383d77546de3652c",
+      "name": "pattern: syntaxerror in python-strings",
+      "members": 3
+    },
+    {
+      "id": "222db0a9e80f1d49",
+      "name": "pattern: syntaxerror in algorithms",
+      "members": 4
+    }
+  ],
+  "archived": 0,
+  "memory": {
+    "working": {
+      "items": 14,
+      "capacity": 32,
+      "usage": 0.4375,
+      "pinned": 0,
+      "compressions": 0
+    },
+    "episodic": {
+      "count": 16,
+      "success": 0,
+      "failure": 12,
+      "unverified": 4,
+      "consolidated": 12,
+      "archived": 0
+    },
+    "semantic": {
+      "count": 12,
+      "facts": 0,
+      "hypotheses": 12,
+      "outdated": 0,
+      "archived": 0,
+      "edges": 14
+    },
+    "procedural": {
+      "count": 0,
+      "verified": 0,
+      "total_successes": 0,
+      "total_failures": 0,
+      "studied": 0,
+      "archived": 0
+    },
+    "db_path": "data/memory/brain.db",
+    "db_bytes": 4096
+  }
+}
