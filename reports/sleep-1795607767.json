@@ -1,0 +1,52 @@
+{
+  "utc": "2026-11-25T11:56:07Z",
+  "duration_s": 82.1,
+  "held_out_score": 0.05,
+  "retrieval_hit@3": 0.875,
+  "sleep": {
+    "cycle_id": "sleep-13ef489d",
+    "status": "interrupted",
+    "stage_timings": {
+      "replay": 0.002
+    },
+    "weaknesses": {}
+  },
+  "new_concepts": 6,
+  "patterns": [],
+  "archived": 0,
+  "memory": {
+    "working": {
+      "items": 12,
+      "capacity": 32,
+      "usage": 0.375,
+      "pinned": 0,
+      "compressions": 0
+    },
+    "episodic": {
+      "count": 136,
+      "success": 0,
+      "failure": 132,
+      "unverified": 4,
+      "consolidated": 12,
+      "archived": 0
+    },
+    "semantic": {
+      "count": 12,
+      "facts": 0,
+      "hypotheses": 12,
+      "outdated": 0,
+      "archived": 0,
+      "edges": 17
+    },
+    "procedural": {
+      "count": 0,
+      "verified": 0,
+      "total_successes": 0,
+      "total_failures": 0,
+      "studied": 0,
+      "archived": 0
+    },
+    "db_path": "data/memory/brain.db",
+    "db_bytes": 4096
+  }
+}
